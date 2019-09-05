@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+"""
+Fits gaussian process model to OGLE light curve, then fits PSPL ML model with parallax
+to samples from the GP model
+
+PSPL model code modified from Nate Golovich code
+"""
 
 import re
 import argparse
