@@ -71,6 +71,12 @@ def mean_function(t,u0,t0,tE,DeltaF,Fbase):
     A = lambda u: (u**2 + 2)/(u*np.sqrt(u**2 + 4))
     return DeltaF*A(u) + Fbase
 
+def A(u):
+    return (u**2 + 2)/(u*np.sqrt(u**2 + 4))
+
+def dAdu(u0):
+    return 100.0/u0*(A(u0*0.99) - A(u0))
+
 def magnitudes_to_fluxes(m, sig_m, zero_point=22.):
     """
     Given the mean and the standard deviation of a magnitude, 
@@ -262,24 +268,31 @@ def fitMLp(t, lcMags, lcSigma):
     try:
         params, cov = curve_fit(mean_function_parallax, t, flux, p0=guess, sigma=sigmaFlux, bounds=(lb,ub))
     except RuntimeError:
-        return None
+        return None, flux, sigmaFlux
         
-    return params
+    return params, flux, sigmaFlux
 
-def writeIteration(outFile, fitParams, t, lcMags, lcSigma):
+def writeIteration(outFile, fitParams, t, lcMags, lcSigma, lcFlux, lcSigmaFlux):
+
+    modelMags = np.zeros_like(t)
+    modelFlux = np.zeros_like(t)
+        
+    for i, tpt in enumerate(t):
+        modelFlux[i] = mean_function_parallax(tpt, fitParams[0], fitParams[1], fitParams[2], fitParams[3], fitParams[4], fitParams[5], fitParams[6])
+        modelMags[i], sig = fluxes_to_magnitudes(modelFlux[i], 0.)
+
+    lnLikelihood = np.sum(((modelFlux - lcFlux)/lcSigmaFlux)**2)
+
     print('# ', file=outFile, end='')
     for p in fitParams:
         print(p, file=outFile, end=' ')
-    print(file=outFile)
-    
-    modelMags = np.zeros_like(t)
-        
+    print(lnLikelihood, fitParams[6]*dAdu(fitParams[3]), file=outFile)
+
     for i, tpt in enumerate(t):
-        modelFlux = mean_function_parallax(tpt, fitParams[0], fitParams[1], fitParams[2], fitParams[3], fitParams[4], fitParams[5], fitParams[6])
-        modelMags[i], sig = fluxes_to_magnitudes(modelFlux, 0.)
         print(tpt, lcMags[i], lcSigma[i], modelMags[i], file=outFile)
 
     outFile.close()
+    return modelFlux
     
 if __name__ == '__main__':
 
@@ -305,8 +318,11 @@ if __name__ == '__main__':
 
     if args.nfit:
         nFit = args.nfit
+        if nFit <2:
+            print('nFit must be >=2')
+            raise RunTimeError
     else:
-        nFit = 1
+        nFit = 2
 
 
     if args.maxgap:
@@ -329,11 +345,11 @@ if __name__ == '__main__':
     
     for n in range(nFit):
         lcSigma = modelSigma(tSample, model)
-        fitParams = fitMLp(tSample, lcMags[:,n], lcSigma)
+        fitParams, lcFlux, lcSigmaFlux = fitMLp(tSample, lcMags[:,n], lcSigma)
         # write fit params and lcSample to output file
         if fitParams is not None:
             outFile = open(outFileName+'.'+str(n), 'w')
-            writeIteration(outFile, fitParams, tSample, lcMags[:,n], lcSigma)
+            writeIteration(outFile, fitParams, tSample, lcMags[:,n], lcSigma, lcFlux, lcSigmaFlux)
             outFile.close()
         
         
