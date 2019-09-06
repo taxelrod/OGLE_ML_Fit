@@ -225,8 +225,13 @@ def fitML(t, lcMags, lcSigma):
     ub = np.array([u0_ub, t0_ub, tE_ub, Fbase_ub, DeltaF_ub])
     
 
-    params, cov = curve_fit(mean_function, t, flux, p0=guess, sigma=sigmaFlux, bounds=(lb,ub))
-    return params
+    try:
+        params, cov = curve_fit(mean_function, t, flux, p0=guess, sigma=sigmaFlux, bounds=(lb,ub))
+    except RuntimeError:
+        return None, flux, sigmaFlux
+        
+    return params, flux, sigmaFlux
+
 
 def fitMLp(t, lcMags, lcSigma):
     # convert mags to fluxes
@@ -274,11 +279,16 @@ def fitMLp(t, lcMags, lcSigma):
 
 def writeIteration(outFile, fitParams, t, lcMags, lcSigma, lcFlux, lcSigmaFlux):
 
+    global parallax
+
     modelMags = np.zeros_like(t)
     modelFlux = np.zeros_like(t)
         
     for i, tpt in enumerate(t):
-        modelFlux[i] = mean_function_parallax(tpt, fitParams[0], fitParams[1], fitParams[2], fitParams[3], fitParams[4], fitParams[5], fitParams[6])
+        if parallax:
+            modelFlux[i] = mean_function_parallax(tpt, fitParams[0], fitParams[1], fitParams[2], fitParams[3], fitParams[4], fitParams[5], fitParams[6])
+        else:
+            modelFlux[i] = mean_function(tpt, fitParams[0], fitParams[1], fitParams[2], fitParams[3], fitParams[4])
         modelMags[i], sig = fluxes_to_magnitudes(modelFlux[i], 0.)
 
     lnLikelihood = np.sum(((modelFlux - lcFlux)/lcSigmaFlux)**2)
@@ -286,7 +296,11 @@ def writeIteration(outFile, fitParams, t, lcMags, lcSigma, lcFlux, lcSigmaFlux):
     print('# ', file=outFile, end='')
     for p in fitParams:
         print(p, file=outFile, end=' ')
-    print(lnLikelihood, fitParams[6]*dAdu(fitParams[3]), file=outFile)
+
+    if parallax:
+        print(lnLikelihood, fitParams[6]*dAdu(fitParams[3]), file=outFile)
+    else:
+        print(lnLikelihood, file=outFile)
 
     for i, tpt in enumerate(t):
         print(tpt, lcMags[i], lcSigma[i], modelMags[i], file=outFile)
@@ -296,11 +310,14 @@ def writeIteration(outFile, fitParams, t, lcMags, lcSigma, lcFlux, lcSigmaFlux):
     
 if __name__ == '__main__':
 
+    global parallax
+    
     parser = argparse.ArgumentParser()
     parser.add_argument('--lc', help = 'lc data file')
     parser.add_argument('--out', help = 'output file')
     parser.add_argument('--nfit', help = 'number of fits to do', type=int)
     parser.add_argument('--maxgap', help = 'maximum time gap in days', type=float)
+    parser.add_argument('--no_parallax', help = 'don\'t use parallax fit - defaults to False', action='store_true')
 
     args = parser.parse_args()
 
@@ -324,7 +341,13 @@ if __name__ == '__main__':
     else:
         nFit = 2
 
+    if args.no_parallax:
+        parallax = False
+    else:
+        parallax = True
 
+    print('parallax: ', parallax)
+    
     if args.maxgap:
         maxGap = args.maxgap
     else:
@@ -345,7 +368,11 @@ if __name__ == '__main__':
     
     for n in range(nFit):
         lcSigma = modelSigma(tSample, model)
-        fitParams, lcFlux, lcSigmaFlux = fitMLp(tSample, lcMags[:,n], lcSigma)
+        if parallax:
+            fitParams, lcFlux, lcSigmaFlux = fitMLp(tSample, lcMags[:,n], lcSigma)
+        else:
+            fitParams, lcFlux, lcSigmaFlux = fitML(tSample, lcMags[:,n], lcSigma)
+            
         # write fit params and lcSample to output file
         if fitParams is not None:
             outFile = open(outFileName+'.'+str(n), 'w')
